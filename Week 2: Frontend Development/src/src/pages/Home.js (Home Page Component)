@@ -1,0 +1,235 @@
+import React, { useState, useEffect } from 'react';
+import BlogCard from '../components/BlogCard';
+import { getAllArticles } from '../services/api';
+import { toast } from 'react-toastify';
+import './Home.css';
+
+const Home = () => {
+  const [articles, setArticles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [sortBy, setSortBy] = useState('createdAt');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  const categories = [
+    'all', 'technology', 'lifestyle', 'travel', 'food', 
+    'health', 'business', 'education', 'entertainment'
+  ];
+
+  useEffect(() => {
+    fetchArticles();
+  }, [currentPage, selectedCategory, sortBy, searchTerm]);
+
+  const fetchArticles = async () => {
+    try {
+      setLoading(true);
+      const params = {
+        page: currentPage,
+        limit: 12,
+        category: selectedCategory !== 'all' ? selectedCategory : undefined,
+        sort: sortBy,
+        search: searchTerm
+      };
+
+      const response = await getAllArticles(params);
+      setArticles(response.data.articles);
+      setTotalPages(response.data.totalPages);
+    } catch (error) {
+      toast.error('Failed to load articles');
+      console.error('Error fetching articles:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    setCurrentPage(1);
+    fetchArticles();
+  };
+
+  const handleCategoryChange = (category) => {
+    setSelectedCategory(category);
+    setCurrentPage(1);
+  };
+
+  const handleSortChange = (sort) => {
+    setSortBy(sort);
+    setCurrentPage(1);
+  };
+
+  return (
+    
+
+      {/* Hero Section */}
+      
+
+        
+
+          
+
+            Welcome to Blogsy
+          
+
+          
+
+            Your space to speak, share, and inspire through powerful storytelling
+          
+
+
+          
+
+            
+
+              1000+
+              Articles
+            
+
+            
+
+              500+
+              Writers
+            
+
+            
+
+              10k+
+              Readers
+            
+
+          
+
+        
+
+      
+
+
+      {/* Filters and Search */}
+      
+
+        
+
+          
+
+            
+{searchTerm}
+ setSearchTerm(e.target.value)}
+              className="search-input"
+            />
+            
+              🔍 Search
+            
+          
+
+
+          
+
+            
+
+              Category:
+              
+
+                {categories.map(category => (
+                   handleCategoryChange(category)}
+                  >
+                    {category.charAt(0).toUpperCase() + category.slice(1)}
+                  
+                ))}
+              
+
+            
+
+
+            
+
+              Sort by:
+              
+Latest
+
+            
+
+          
+
+        
+
+      
+
+
+      {/* Articles Grid */}
+      
+
+        
+
+          {loading ? (
+            
+
+              
+
+              
+Loading amazing articles...
+
+
+            
+
+          ) : articles.length > 0 ? (
+            <>
+              
+
+                {articles.map(article => (
+                  
+                ))}
+              
+
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                
+
+                   setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    className="pagination-btn"
+                  >
+                    ← Previous
+                  
+                  
+                  
+
+                    Page {currentPage} of {totalPages}
+                  
+
+                  
+                   setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    className="pagination-btn"
+                  >
+                    Next →
+                  
+                
+
+              )}
+            
+          ) : (
+            
+
+              
+No articles found
+
+              
+Try adjusting your search or filter criteria
+
+
+            
+
+          )}
+        
+
+      
+
+    
+
+  );
+};
+
+export default Home;
