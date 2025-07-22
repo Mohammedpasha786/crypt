@@ -1,0 +1,254 @@
+const redis = require('redis');
+const redisClient = require('./redisClient');
+
+class CacheService {
+  constructor() {
+    this.client = redisClient;
+    this.defaultExpiration = 3600; // 1 hour
+  }
+
+  // Generic cache get method
+  async get(key) {
+    try {
+      const cached = await this.client.get(key);
+      return cached ? JSON.parse(cached) : null;
+    } catch (error) {
+      console.error('Cache get error:', error);
+      return null;
+    }
+  }
+
+  // Generic cache set method
+  async set(key, value, expiration = this.defaultExpiration) {
+    try {
+      const serialized = JSON.stringify(value);
+      if (expiration) {
+        await this.client.setEx(key, expiration, serialized);
+      } else {
+        await this.client.set(key, serialized);
+      }
+      return true;
+    } catch (error) {
+      console.error('Cache set error:', error);
+      return false;
+    }
+  }
+
+  // Delete cache entry
+  async del(key) {
+    try {
+      await this.client.del(key);
+      return true;
+    } catch (error) {
+      console.error('Cache delete error:', error);
+      return false;
+    }
+  }
+
+  // Delete multiple cache entries by pattern
+  async delPattern(pattern) {
+    try {
+      const keys = await this.client.keys(pattern);
+      if (keys.length > 0) {
+        await this.client.del(keys);
+      }
+      return true;
+    } catch (error) {
+      console.error('Cache delete pattern error:', error);
+      return false;
+    }
+  }
+
+  // Cache articles list
+  async cacheArticles(params, articles, totalPages) {
+    const key = this.generateArticlesKey(params);
+    const data = { articles, totalPages, cachedAt: new Date() };
+    return await this.set(key, data, 1800); // 30 minutes
+  }
+
+  // Get cached articles
+  async getCachedArticles(params) {
+    const key = this.generateArticlesKey(params);
+    return await this.get(key);
+  }
+
+  // Cache single article
+  async cacheArticle(articleId, article) {
+    const key = `article:${articleId}`;
+    return await this.set(key, article, 3600); // 1 hour
+  }
+
+  // Get cached article
+  async getCachedArticle(articleId) {
+    const key = `article:${articleId}`;
+    return await this.get(key);
+  }
+
+  // Cache user profile
+  async cacheUserProfile(userId, user) {
+    const key = `user:${userId}`;
+    return await this.set(key, user, 1800); // 30 minutes
+  }
+
+  // Get cached user profile
+  async getCachedUserProfile(userId) {
+    const key = `user:${userId}`;
+    return await this.get(key);
+  }
+
+  // Cache popular articles
+  async cachePopularArticles(articles) {
+    const key = 'popular:articles';
+    return await this.set(key, articles, 7200); // 2 hours
+  }
+
+  // Get cached popular articles
+  async getCachedPopularArticles() {
+    const key = 'popular:articles';
+    return await this.get(key);
+  }
+
+  // Increment view count
+  async incrementViews(articleId) {
+    try {
+      const key = `views:${articleId}`;
+      const count = await this.client.incr(key);
+      await this.client.expire(key, 86400); // 24 hours
+      return count;
+    } catch (error) {
+      console.error('Cache increment views error:', error);
+      return 0;
+    }
+  }
+
+  // Get view count
+  async getViews(articleId) {
+    try {
+      const key = `views:${articleId}`;
+      const views = await this.client.get(key);
+      return parseInt(views) || 0;
+    } catch (error) {
+      console.error('Cache get views error:', error);
+      return 0;
+    }
+  }
+
+  // Cache search results
+  async cacheSearchResults(query, results) {
+    const key = `search:${Buffer.from(query).toString('base64')}`;
+    return await this.set(key, results, 900); // 15 minutes
+  }
+
+  // Get cached search results
+  async getCachedSearchResults(query) {
+    const key = `search:${Buffer.from(query).toString('base64')}`;
+    return await this.get(key);
+  }
+
+  // Generate cache key for articles with params
+  generateArticlesKey(params) {
+    const sortedParams = Object.keys(params)
+      .sort()
+      .reduce((result, key) => {
+        if (params[key] !== undefined && params[key] !== null) {
+          result[key] = params[key];
+        }
+        return result;
+      }, {});
+    
+    const paramsString = JSON.stringify(sortedParams);
+    const key = `articles:${Buffer.from(paramsString).toString('base64')}`;
+    return key;
+  }
+
+  // Clear all article-related cache
+  async clearArticleCache() {
+    try {
+      await Promise.all([
+        this.delPattern('articles:*'),
+        this.delPattern('article:*'),
+        this.delPattern('popular:*'),
+        this.delPattern('search:*')
+      ]);
+      return true;
+    } catch (error) {
+      console.error('Clear article cache error:', error);
+      return false;
+    }
+  }
+
+  // Clear user-related cache
+  async clearUserCache(userId) {
+    try {
+      await this.delPattern(`user:${userId}`);
+      return true;
+    } catch (error) {
+      console.error('Clear user cache error:', error);
+      return false;
+    }
+  }
+
+  // Get cache statistics
+  async getStats() {
+    try {
+      const info = await this.client.info('memory');
+      const keyspace = await this.client.info('keyspace');
+      
+      return {
+        memory: info,
+        keyspace: keyspace,
+        connected: this.client.isOpen
+      };
+    } catch (error) {
+      console.error('Cache stats error:', error);
+      return { connected: false };
+    }
+  }
+
+  // Health check
+  async healthCheck() {
+    try {
+      const testKey = 'health:check';
+      const testValue = { timestamp: Date.now() };
+      
+      await this.set(testKey, testValue, 10);
+      const retrieved = await this.get(testKey);
+      await this.del(testKey);
+      
+      return retrieved !== null;
+    } catch (error) {
+      console.error('Cache health check error:', error);
+      return false;
+    }
+  }
+
+  // Batch operations
+  async mget(keys) {
+    try {
+      const values = await this.client.mGet(keys);
+      return values.map(val => val ? JSON.parse(val) : null);
+    } catch (error) {
+      console.error('Cache mget error:', error);
+      return new Array(keys.length).fill(null);
+    }
+  }
+
+  async mset(keyValuePairs, expiration = this.defaultExpiration) {
+    try {
+      const pipeline = this.client.multi();
+      
+      for (const [key, value] of keyValuePairs) {
+        const serialized = JSON.stringify(value);
+        pipeline.setEx(key, expiration, serialized);
+      }
+      
+      await pipeline.exec();
+      return true;
+    } catch (error) {
+      console.error('Cache mset error:', error);
+      return false;
+    }
+  }
+}
+
+module.exports = new CacheService();
